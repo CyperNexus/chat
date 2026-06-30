@@ -278,38 +278,44 @@ export default function Chat({ username }) {
       style={t.bgImage ? { backgroundImage: t.bgImage } : {}}
     >
       {/* Header */}
-      <header className={`${t.header} px-4 py-4 md:px-6 md:py-4 shadow-sm flex items-center justify-between border-b ${t.border} z-10 transition-colors duration-500`}>
-        <div className="flex items-center gap-3 md:gap-4">
-          <div className="relative">
-            <div className={`w-14 h-14 md:w-12 md:h-12 ${t.iconBg} rounded-full flex items-center justify-center ${t.textPrimary} font-bold text-2xl md:text-xl shadow-inner`}>
+      <header className={`${t.header} px-3 py-3 md:px-6 md:py-4 shadow-sm flex items-center justify-between border-b ${t.border} z-10 transition-colors duration-500`}>
+        <div className="flex items-center gap-2 md:gap-4 overflow-hidden">
+          <div className="relative flex-shrink-0">
+            <div className={`w-12 h-12 ${t.iconBg} rounded-full flex items-center justify-center ${t.textPrimary} font-bold text-xl shadow-inner`}>
               {partnerName.charAt(0)}
             </div>
-            <div className={`absolute bottom-0 right-0 w-4 h-4 md:w-3.5 md:h-3.5 rounded-full border-2 ${isDark ? 'border-gray-800' : 'border-white'} ${partnerStatus.status === 'online' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+            <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${isDark ? 'border-gray-800' : 'border-white'} ${partnerStatus.status === 'online' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
           </div>
-          <div>
-            <h1 className={`font-bold ${isDark ? 'text-gray-100' : 'text-gray-800'} text-xl md:text-lg`}>
+          <div className="min-w-0">
+            <h1 className={`font-bold ${isDark ? 'text-gray-100' : 'text-gray-800'} text-lg truncate`}>
               {partnerStatus.nickname ? `${partnerStatus.nickname} (${partnerName})` : partnerName}
             </h1>
-            <p className={`text-base md:text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{partnerStatus.customText || 'Đang offline'}</p>
+            <div className="flex items-center gap-2">
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'} truncate max-w-[120px]`}>{partnerStatus.customText || 'Đang offline'}</p>
+              <div className={`flex items-center gap-1 ${t.textPrimary} text-[10px] md:hidden flex-shrink-0`}>
+                <Heart className="w-3 h-3 animate-pulse" fill="currentColor" />
+                <span className="font-bold">{daysTogether}</span>d
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col items-center">
+        <div className="hidden md:flex flex-col items-center flex-shrink-0 mx-2">
           <div className={`flex items-center gap-1 ${t.textPrimary}`}>
-            <Heart className="w-6 h-6 md:w-5 md:h-5 animate-pulse" fill="currentColor" />
-            <span className="font-bold text-2xl md:text-xl">{daysTogether}</span>
-            <span className="text-base md:text-sm font-medium">ngày</span>
+            <Heart className="w-5 h-5 animate-pulse" fill="currentColor" />
+            <span className="font-bold text-xl">{daysTogether}</span>
+            <span className="text-sm font-medium">ngày</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 relative">
+        <div className="flex items-center gap-2 md:gap-4 relative flex-shrink-0">
           
           <div className="relative">
             <button 
               onClick={() => setShowThemePicker(!showThemePicker)}
-              className={`p-2 ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
+              className={`p-1.5 md:p-2 ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
             >
-              <Palette size={20} />
+              <Palette className="w-5 h-5 md:w-5 md:h-5" />
             </button>
             {showThemePicker && (
               <div className={`absolute top-10 right-0 ${t.header} shadow-lg rounded-xl border ${t.border} py-2 w-40 z-20`}>
@@ -326,33 +332,33 @@ export default function Chat({ username }) {
             )}
           </div>
 
-          <div className="text-right">
+          <div className="text-right flex flex-col items-end">
             {showNicknameInput ? (
-              <form onSubmit={saveNickname} className="flex flex-col items-end gap-1">
+              <form onSubmit={saveNickname} className="flex items-center gap-1">
                 <input 
                   autoFocus
                   type="text"
                   value={myNickname}
                   onChange={(e) => setMyNickname(e.target.value)}
-                  placeholder="Đặt biệt danh..."
-                  className={`text-sm px-2 py-1 border rounded w-32 ${isDark ? 'bg-gray-700 text-white border-gray-600' : 'bg-white border-gray-300'}`}
+                  placeholder="Biệt danh..."
+                  className={`text-xs px-2 py-1 border rounded w-20 md:w-32 ${isDark ? 'bg-gray-700 text-white border-gray-600' : 'bg-white border-gray-300'}`}
                 />
-                <button type="submit" className={`text-xs ${t.textPrimary}`}>Lưu</button>
+                <button type="submit" className={`text-xs ${t.textPrimary}`}>OK</button>
               </form>
             ) : (
               <p 
                 onClick={() => setShowNicknameInput(true)}
-                className={`text-sm font-semibold cursor-pointer hover:opacity-80`}
+                className={`text-xs md:text-sm font-semibold cursor-pointer hover:opacity-80 truncate max-w-[60px] md:max-w-[120px]`}
               >
-                {myNickname ? `${myNickname} (${username})` : username}
+                {myNickname || username}
               </p>
             )}
 
             <button 
               onClick={() => setShowStatusMenu(!showStatusMenu)}
-              className={`text-xs ${t.textPrimary} flex items-center gap-1 opacity-80 hover:opacity-100 transition mt-1`}
+              className={`text-[10px] md:text-xs ${t.textPrimary} flex items-center gap-0.5 opacity-80 hover:opacity-100 transition mt-0.5`}
             >
-              {myCustomText || 'Cập nhật trạng thái'} <ChevronDown size={12} />
+              <span className="truncate max-w-[60px] md:max-w-[100px]">{myCustomText || 'Trạng thái'}</span> <ChevronDown className="w-3 h-3" />
             </button>
             {showStatusMenu && (
               <div className={`absolute top-10 right-0 ${t.header} shadow-lg rounded-xl border ${t.border} py-2 w-40 z-20`}>
@@ -369,9 +375,9 @@ export default function Chat({ username }) {
               localStorage.removeItem('chat_username');
               window.location.reload();
             }}
-            className={`p-2 ${isDark ? 'text-gray-400 hover:text-red-400' : 'text-gray-400 hover:text-red-500'} transition-colors`}
+            className={`p-1.5 md:p-2 ${isDark ? 'text-gray-400 hover:text-red-400' : 'text-gray-400 hover:text-red-500'} transition-colors`}
           >
-            <LogOut size={20} />
+            <LogOut className="w-5 h-5 md:w-5 md:h-5" />
           </button>
         </div>
       </header>
