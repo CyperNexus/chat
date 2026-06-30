@@ -137,6 +137,9 @@ app.get('/api/messages', (req, res) => {
 
 // Any other GET request not handled by /api goes to the React app
 app.use((req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
