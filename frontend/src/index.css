@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: white;
+    color: #1f2937;
+    margin: 0;
+    padding: 0;
+    font-family: sans-serif;
+  }
+}
+
+/* Custom scrollbar for chat */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #fbcfe8; /* pink-200 */
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f9a8d4; /* pink-300 */
+}
