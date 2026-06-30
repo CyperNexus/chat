@@ -457,7 +457,7 @@ export default function Chat({ username }) {
                     ) : null}
                     <p className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="underline">$&</a>') }}></p>
                     <div className={`text-[10px] mt-1 text-right opacity-70`}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      {new Date(msg.timestamp + (msg.timestamp.includes('Z') ? '' : 'Z')).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
                     </div>
                   </div>
 
