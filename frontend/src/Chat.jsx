@@ -274,7 +274,7 @@ export default function Chat({ username }) {
 
   return (
     <div 
-      className={`flex flex-col h-screen ${t.bg} transition-colors duration-500`}
+      className={`flex flex-col h-screen w-full max-w-[100vw] overflow-x-hidden ${t.bg} transition-colors duration-500`}
       style={t.bgImage ? { backgroundImage: t.bgImage } : {}}
     >
       {/* Header */}
@@ -516,26 +516,26 @@ export default function Chat({ username }) {
           </div>
         )}
 
-        <form onSubmit={handleSend} className="flex gap-2 max-w-4xl mx-auto items-center">
+        <form onSubmit={handleSend} className="flex gap-2 w-full max-w-4xl mx-auto items-center">
           <button 
             type="button" 
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className={`text-gray-400 ${t.hoverBtn} p-2 md:p-2 transition-colors`}
+            className={`text-gray-400 ${t.hoverBtn} p-1 md:p-2 transition-colors flex-shrink-0`}
           >
-            <Smile className="w-8 h-8 md:w-6 md:h-6" />
+            <Smile className="w-7 h-7 md:w-6 md:h-6" />
           </button>
           <input 
             type="text" 
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Nhắn nhủ điều gì đó..."
-            className={`flex-1 ${isDark ? 'bg-gray-700 text-white border-gray-600 focus:bg-gray-800' : 'bg-gray-50 text-gray-900 border-gray-200 focus:bg-white'} border rounded-full px-6 py-4 md:py-3 text-lg md:text-base focus:outline-none focus:ring-2 transition-all`}
+            className={`flex-1 min-w-0 ${isDark ? 'bg-gray-700 text-white border-gray-600 focus:bg-gray-800' : 'bg-gray-50 text-gray-900 border-gray-200 focus:bg-white'} border rounded-full px-4 py-3 md:py-3 text-base md:text-base focus:outline-none focus:ring-2 transition-all`}
           />
           <button 
             type="submit"
-            className={`${t.myMsgBg} rounded-full w-14 h-14 md:w-12 md:h-12 flex items-center justify-center transition-transform hover:scale-105 shadow-md flex-shrink-0`}
+            className={`${t.myMsgBg} rounded-full w-12 h-12 md:w-12 md:h-12 flex items-center justify-center transition-transform hover:scale-105 shadow-md flex-shrink-0`}
           >
-            <Send className="w-6 h-6 md:w-5 md:h-5" />
+            <Send className="w-5 h-5 md:w-5 md:h-5" />
           </button>
         </form>
       </footer>
