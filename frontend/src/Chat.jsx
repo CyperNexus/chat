@@ -278,27 +278,27 @@ export default function Chat({ username }) {
       style={t.bgImage ? { backgroundImage: t.bgImage } : {}}
     >
       {/* Header */}
-      <header className={`${t.header} px-6 py-4 shadow-sm flex items-center justify-between border-b ${t.border} z-10 transition-colors duration-500`}>
-        <div className="flex items-center gap-4">
+      <header className={`${t.header} px-4 py-4 md:px-6 md:py-4 shadow-sm flex items-center justify-between border-b ${t.border} z-10 transition-colors duration-500`}>
+        <div className="flex items-center gap-3 md:gap-4">
           <div className="relative">
-            <div className={`w-12 h-12 ${t.iconBg} rounded-full flex items-center justify-center ${t.textPrimary} font-bold text-xl shadow-inner`}>
+            <div className={`w-14 h-14 md:w-12 md:h-12 ${t.iconBg} rounded-full flex items-center justify-center ${t.textPrimary} font-bold text-2xl md:text-xl shadow-inner`}>
               {partnerName.charAt(0)}
             </div>
-            <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${isDark ? 'border-gray-800' : 'border-white'} ${partnerStatus.status === 'online' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+            <div className={`absolute bottom-0 right-0 w-4 h-4 md:w-3.5 md:h-3.5 rounded-full border-2 ${isDark ? 'border-gray-800' : 'border-white'} ${partnerStatus.status === 'online' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
           </div>
           <div>
-            <h1 className={`font-bold ${isDark ? 'text-gray-100' : 'text-gray-800'} text-lg`}>
+            <h1 className={`font-bold ${isDark ? 'text-gray-100' : 'text-gray-800'} text-xl md:text-lg`}>
               {partnerStatus.nickname ? `${partnerStatus.nickname} (${partnerName})` : partnerName}
             </h1>
-            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{partnerStatus.customText || 'Đang offline'}</p>
+            <p className={`text-base md:text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{partnerStatus.customText || 'Đang offline'}</p>
           </div>
         </div>
 
         <div className="flex flex-col items-center">
           <div className={`flex items-center gap-1 ${t.textPrimary}`}>
-            <Heart size={20} fill="currentColor" className="animate-pulse" />
-            <span className="font-bold text-xl">{daysTogether}</span>
-            <span className="text-sm font-medium">ngày</span>
+            <Heart className="w-6 h-6 md:w-5 md:h-5 animate-pulse" fill="currentColor" />
+            <span className="font-bold text-2xl md:text-xl">{daysTogether}</span>
+            <span className="text-base md:text-sm font-medium">ngày</span>
           </div>
         </div>
 
@@ -421,42 +421,42 @@ export default function Chat({ username }) {
                 <div className="group relative flex flex-col max-w-[70%]">
                   
                   {/* Reaction Button (Hover) */}
-                  <div className={`absolute top-0 ${isMe ? '-left-12' : '-right-12'} opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1 z-10 ${t.header} shadow-md rounded-full p-1`}>
+                  <div className={`absolute top-0 ${isMe ? '-left-14 md:-left-12' : '-right-14 md:-right-12'} opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2 md:gap-1 z-10 ${t.header} shadow-md rounded-full p-2 md:p-1`}>
                     {reactionOptions.map(emoji => (
-                      <button key={emoji} onClick={() => addReaction(msg.id, emoji)} className="hover:scale-125 transition-transform text-sm">
+                      <button key={emoji} onClick={() => addReaction(msg.id, emoji)} className="hover:scale-125 transition-transform text-xl md:text-sm">
                         {emoji}
                       </button>
                     ))}
                     <button onClick={() => setReplyingTo(msg)} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center title='Trả lời'">
-                      <Reply size={14} />
+                      <Reply className="w-5 h-5 md:w-3.5 md:h-3.5" />
                     </button>
                     <button onClick={() => navigator.clipboard.writeText(msg.text)} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center" title='Copy'>
-                      <Copy size={14} />
+                      <Copy className="w-5 h-5 md:w-3.5 md:h-3.5" />
                     </button>
                     {isRecallable && (
                       <button onClick={() => recallMessage(msg.id)} className="hover:scale-125 transition-transform text-red-500 p-1 flex justify-center title='Thu hồi'" title="Thu hồi">
-                        <X size={14} />
+                        <X className="w-5 h-5 md:w-3.5 md:h-3.5" />
                       </button>
                     )}
                   </div>
 
                   {/* Replied Message Bubble */}
                   {msg.reply_to_text && (
-                    <div className={`text-xs mb-1 p-2 rounded-lg opacity-80 ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+                    <div className={`text-sm md:text-xs mb-1 p-2 md:p-2 rounded-lg opacity-80 ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
                       <span className="font-bold">{msg.reply_to_sender}: </span>
                       {msg.reply_is_recalled ? <i>Tin nhắn đã bị thu hồi</i> : (msg.reply_to_text.substring(0, 50) + (msg.reply_to_text.length > 50 ? '...' : ''))}
                     </div>
                   )}
 
                   {/* Main Bubble */}
-                  <div className={`rounded-2xl px-4 py-2 shadow-sm relative border ${isMe ? t.myMsgBg + ' rounded-br-none border-transparent' : t.theirMsgBg + ' rounded-bl-none'}`}>
+                  <div className={`rounded-2xl px-5 py-3 md:px-4 md:py-2 shadow-sm relative border ${isMe ? t.myMsgBg + ' rounded-br-none border-transparent' : t.theirMsgBg + ' rounded-bl-none'}`}>
                     {msg.type === 'video' && msg.media_url ? (
                       <div className="mb-2">
                         <video src={msg.media_url} controls className="rounded-lg max-h-96 w-auto" />
                       </div>
                     ) : null}
-                    <p className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="underline">$&</a>') }}></p>
-                    <div className={`text-[10px] mt-1 text-right opacity-70`}>
+                    <p className="whitespace-pre-wrap break-words text-lg md:text-base" dangerouslySetInnerHTML={{ __html: msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="underline">$&</a>') }}></p>
+                    <div className={`text-xs md:text-[10px] mt-1 text-right opacity-70`}>
                       {new Date(msg.timestamp + (msg.timestamp.includes('Z') ? '' : 'Z')).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
                     </div>
                   </div>
@@ -465,7 +465,7 @@ export default function Chat({ username }) {
                   {Object.keys(reactionsObj).length > 0 && (
                     <div className={`flex gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
                       {Object.entries(reactionsObj).map(([emoji, users]) => (
-                        <div key={emoji} className={`${t.header} border ${t.border} text-xs rounded-full px-1.5 py-0.5 shadow-sm`}>
+                        <div key={emoji} className={`${t.header} border ${t.border} text-sm md:text-xs rounded-full px-2 py-1 md:px-1.5 md:py-0.5 shadow-sm`}>
                           {emoji} {users.length > 1 ? users.length : ''}
                         </div>
                       ))}
@@ -514,22 +514,22 @@ export default function Chat({ username }) {
           <button 
             type="button" 
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className={`text-gray-400 ${t.hoverBtn} p-2 transition-colors`}
+            className={`text-gray-400 ${t.hoverBtn} p-2 md:p-2 transition-colors`}
           >
-            <Smile size={24} />
+            <Smile className="w-8 h-8 md:w-6 md:h-6" />
           </button>
           <input 
             type="text" 
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Nhắn nhủ điều gì đó..."
-            className={`flex-1 ${isDark ? 'bg-gray-700 text-white border-gray-600 focus:bg-gray-800' : 'bg-gray-50 text-gray-900 border-gray-200 focus:bg-white'} border rounded-full px-6 py-3 focus:outline-none focus:ring-2 transition-all`}
+            className={`flex-1 ${isDark ? 'bg-gray-700 text-white border-gray-600 focus:bg-gray-800' : 'bg-gray-50 text-gray-900 border-gray-200 focus:bg-white'} border rounded-full px-6 py-4 md:py-3 text-lg md:text-base focus:outline-none focus:ring-2 transition-all`}
           />
           <button 
             type="submit"
-            className={`${t.myMsgBg} rounded-full w-12 h-12 flex items-center justify-center transition-transform hover:scale-105 shadow-md flex-shrink-0`}
+            className={`${t.myMsgBg} rounded-full w-14 h-14 md:w-12 md:h-12 flex items-center justify-center transition-transform hover:scale-105 shadow-md flex-shrink-0`}
           >
-            <Send size={20} />
+            <Send className="w-6 h-6 md:w-5 md:h-5" />
           </button>
         </form>
       </footer>
