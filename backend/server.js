@@ -5,19 +5,33 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-// We will use yt-dlp-exec later if it installs successfully, or just spawn process.
+const multer = require('multer');
 const { spawn } = require('child_process');
 
-// We will store uploaded files in a temp folder for 24h or until both disconnect
 const tempDir = path.join(__dirname, 'temp');
-if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir);
-}
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use('/temp', express.static(tempDir));
+app.use('/uploads', express.static(uploadsDir));
+
+// Multer config for uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname) || '.png';
+        cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+    }
+});
+const upload = multer({ storage: storage });
 
 // Serve React Frontend (dist folder)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
@@ -42,13 +56,22 @@ db.serialize(() => {
         reply_to_id INTEGER,
         reactions TEXT DEFAULT '{}',
         is_recalled BOOLEAN DEFAULT 0,
+        status TEXT DEFAULT 'sent',
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Add new columns if they don't exist (ignoring errors if they do)
+    // Add new columns if they don't exist
     db.run("ALTER TABLE messages ADD COLUMN reply_to_id INTEGER", (err) => {});
     db.run("ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'", (err) => {});
     db.run("ALTER TABLE messages ADD COLUMN is_recalled BOOLEAN DEFAULT 0", (err) => {});
+    db.run("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'", (err) => {});
+
+    db.run(`CREATE TABLE IF NOT EXISTS stickers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner TEXT,
+        url TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS config (
         key TEXT PRIMARY KEY,
@@ -97,6 +120,12 @@ app.get('/api/config', (req, res) => {
         rows.forEach(r => config[r.key] = r.value);
         res.json(config);
     });
+});
+
+app.post('/api/upload', upload.single('image'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const url = `/uploads/${req.file.filename}`;
+    res.json({ url });
 });
 
 const downloadingMedia = new Set();
@@ -210,6 +239,53 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('update_avatar', ({ username, url }) => {
+        const key = `avatar_${username}`;
+        db.get("SELECT * FROM config WHERE key = ?", [key], (err, row) => {
+            if (row) {
+                db.run("UPDATE config SET value = ? WHERE key = ?", [url, key], () => {
+                    io.emit('avatar_updated', { username, url });
+                });
+            } else {
+                db.run("INSERT INTO config (key, value) VALUES (?, ?)", [key, url], () => {
+                    io.emit('avatar_updated', { username, url });
+                });
+            }
+        });
+    });
+
+    socket.on('typing', ({ username }) => {
+        socket.broadcast.emit('user_typing', { username });
+    });
+
+    socket.on('stop_typing', ({ username }) => {
+        socket.broadcast.emit('user_stop_typing', { username });
+    });
+
+    socket.on('mark_as_read', ({ username }) => {
+        db.run("UPDATE messages SET status = 'read' WHERE sender != ? AND status != 'read'", [username], function(err) {
+            if (!err && this.changes > 0) {
+                io.emit('messages_read', { by: username });
+            }
+        });
+    });
+
+    socket.on('get_stickers', (username) => {
+        db.all("SELECT * FROM stickers WHERE owner = ? ORDER BY timestamp DESC", [username], (err, rows) => {
+            if (!err) socket.emit('stickers_list', rows);
+        });
+    });
+
+    socket.on('save_sticker', ({ username, url }) => {
+        db.run("INSERT INTO stickers (owner, url) VALUES (?, ?)", [username, url], function(err) {
+            if (!err) {
+                db.all("SELECT * FROM stickers WHERE owner = ? ORDER BY timestamp DESC", [username], (err, rows) => {
+                    if (!err) socket.emit('stickers_list', rows);
+                });
+            }
+        });
+    });
+
     socket.on('recall_message', ({ messageId, username }) => {
         db.get("SELECT sender, timestamp FROM messages WHERE id = ?", [messageId], (err, row) => {
             if (row && row.sender === username) {
@@ -227,12 +303,13 @@ io.on('connection', (socket) => {
     });
 
     socket.on('send_message', (data) => {
-        const { sender, text, reply_to_id } = data;
+        const { sender, text, reply_to_id, type, media_url, client_id } = data;
         
-        let type = 'text';
-        let media_url = null;
+        let msgType = type || 'text';
+        let msgMedia = media_url || null;
 
-        db.run("INSERT INTO messages (sender, text, type, media_url, reply_to_id) VALUES (?, ?, ?, ?, ?)", [sender, text, type, media_url, reply_to_id || null], function(err) {
+        db.run("INSERT INTO messages (sender, text, type, media_url, reply_to_id, status) VALUES (?, ?, ?, ?, ?, 'sent')", 
+        [sender, text, msgType, msgMedia, reply_to_id || null], function(err) {
             if (err) return;
             const messageId = this.lastID;
             
@@ -247,14 +324,16 @@ io.on('connection', (socket) => {
             `;
             db.get(query, [messageId], (err, row) => {
                 if (row) {
-                    io.emit('new_message', row);
+                    io.emit('new_message', { ...row, client_id });
                     
                     // Check for video links
-                    const urls = text.match(urlRegex);
-                    if (urls && urls.length > 0) {
-                        const firstUrl = urls[0];
-                        if (firstUrl.includes('tiktok.com') || firstUrl.includes('youtube.com') || firstUrl.includes('youtu.be')) {
-                            downloadVideo(firstUrl, messageId);
+                    if (msgType === 'text') {
+                        const urls = text.match(urlRegex);
+                        if (urls && urls.length > 0) {
+                            const firstUrl = urls[0];
+                            if (firstUrl.includes('tiktok.com') || firstUrl.includes('youtube.com') || firstUrl.includes('youtu.be')) {
+                                downloadVideo(firstUrl, messageId);
+                            }
                         }
                     }
                 }

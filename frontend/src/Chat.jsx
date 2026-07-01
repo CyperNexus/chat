@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { Heart, Send, LogOut, ChevronDown, Smile, Reply, X, Palette, Copy } from 'lucide-react';
+import { Heart, Send, LogOut, ChevronDown, Smile, Reply, X, Palette, Copy, ImageIcon, Plus, Download } from 'lucide-react';
 import Picker from 'emoji-picker-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plyr } from 'plyr-react';
 import 'plyr-react/plyr.css';
+import { ImageCropperModal } from './ImageCropper';
 
 const socket = io();
 
@@ -101,7 +102,22 @@ export default function Chat({ username }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeMenuId, setActiveMenuId] = useState(null);
+  
+  const [myAvatar, setMyAvatar] = useState(null);
+  const [partnerAvatar, setPartnerAvatar] = useState(null);
+  const [avatarToCrop, setAvatarToCrop] = useState(null);
+  
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+  const [stickers, setStickers] = useState([]);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [stickerToCrop, setStickerToCrop] = useState(null);
+  const [reactingToMessage, setReactingToMessage] = useState(null); // id of msg to react to with sticker
+  
+  const typingTimeoutRef = useRef(null);
+  
   const pressTimer = useRef(null);
+  const avatarInputRef = useRef(null);
+  const stickerInputRef = useRef(null);
 
   const messagesEndRef = useRef(null);
   const listRef = useRef(null);
@@ -113,24 +129,25 @@ export default function Chat({ username }) {
   useEffect(() => {
     socket.emit('join', username);
 
-    // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
 
+    const markAsRead = () => socket.emit('mark_as_read', { username });
+    window.addEventListener('focus', markAsRead);
+    
     fetch('/api/config')
       .then(res => res.json())
       .then(data => {
         if (data.start_date) {
           const start = new Date(data.start_date);
           const now = new Date();
-          const diffTime = Math.abs(now - start);
-          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+          const diffDays = Math.floor(Math.abs(now - start) / (1000 * 60 * 60 * 24));
           setDaysTogether(diffDays);
         }
-        if (data.global_theme && THEMES[data.global_theme]) {
-          setCurrentThemeId(data.global_theme);
-        }
+        if (data.global_theme && THEMES[data.global_theme]) setCurrentThemeId(data.global_theme);
+        if (data[`avatar_${username}`]) setMyAvatar(data[`avatar_${username}`]);
+        if (data[`avatar_${partnerName}`]) setPartnerAvatar(data[`avatar_${partnerName}`]);
       });
 
     const fetchMessages = async () => {
@@ -139,15 +156,28 @@ export default function Chat({ username }) {
       setMessages(data);
       if (data.length < 15) setHasMore(false);
       scrollToBottom();
+      markAsRead();
     };
     fetchMessages();
+    socket.emit('get_stickers', username);
 
     socket.on('new_message', (msg) => {
-      setMessages(prev => [...prev, msg]);
+      setMessages(prev => {
+        if (msg.client_id) {
+          const idx = prev.findIndex(m => m.id === msg.client_id);
+          if (idx !== -1) {
+            const newArr = [...prev];
+            newArr[idx] = msg;
+            return newArr;
+          }
+        }
+        return [...prev, msg];
+      });
       setTimeout(scrollToBottom, 100);
 
-      // Show notification if backgrounded and not from me
-      if ('Notification' in window && document.hidden && msg.sender !== username && Notification.permission === 'granted') {
+      if (!document.hidden && msg.sender !== username) {
+        markAsRead();
+      } else if ('Notification' in window && document.hidden && msg.sender !== username && Notification.permission === 'granted') {
         const title = partnerStatus.nickname ? `${partnerStatus.nickname} (${msg.sender})` : msg.sender;
         new Notification(title, { body: msg.text || 'Đã gửi một tin nhắn' });
       }
@@ -165,10 +195,31 @@ export default function Chat({ username }) {
       setMessages(prev => prev.map(m => m.id === id ? { ...m, is_recalled: 1 } : m));
     });
 
-    socket.on('user_status', (statuses) => {
-      if (statuses[partnerName]) {
-        setPartnerStatus(statuses[partnerName]);
+    socket.on('avatar_updated', ({ username: uName, url }) => {
+      if (uName === username) setMyAvatar(url);
+      if (uName === partnerName) setPartnerAvatar(url);
+    });
+
+    socket.on('user_typing', ({ username: uName }) => {
+      if (uName === partnerName) setIsPartnerTyping(true);
+    });
+
+    socket.on('user_stop_typing', ({ username: uName }) => {
+      if (uName === partnerName) setIsPartnerTyping(false);
+    });
+
+    socket.on('messages_read', ({ by }) => {
+      if (by === partnerName) {
+        setMessages(prev => prev.map(m => (m.sender === username && m.status !== 'read') ? { ...m, status: 'read' } : m));
       }
+    });
+
+    socket.on('stickers_list', (list) => {
+      setStickers(list);
+    });
+
+    socket.on('user_status', (statuses) => {
+      if (statuses[partnerName]) setPartnerStatus(statuses[partnerName]);
       if (statuses[username]) {
         setMyCustomText(statuses[username].customText);
         setMyNickname(statuses[username].nickname);
@@ -179,18 +230,22 @@ export default function Chat({ username }) {
       if (THEMES[themeId]) setCurrentThemeId(themeId);
     });
 
-    const heartbeatInterval = setInterval(() => {
-      socket.emit('heartbeat');
-    }, 30000);
+    const heartbeatInterval = setInterval(() => socket.emit('heartbeat'), 30000);
 
     return () => {
       socket.off('new_message');
       socket.off('message_updated');
       socket.off('reaction_updated');
       socket.off('message_recalled');
+      socket.off('avatar_updated');
+      socket.off('user_typing');
+      socket.off('user_stop_typing');
+      socket.off('messages_read');
+      socket.off('stickers_list');
       socket.off('user_status');
       socket.off('theme_updated');
       clearInterval(heartbeatInterval);
+      window.removeEventListener('focus', markAsRead);
     };
   }, [username, partnerName, partnerStatus.nickname]);
 
@@ -210,6 +265,38 @@ export default function Chat({ username }) {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const sendSticker = (url) => {
+    const clientId = `temp_${Date.now()}`;
+    const newMsg = {
+      id: clientId,
+      sender: username,
+      text: '',
+      type: 'sticker',
+      media_url: url,
+      status: 'sending',
+      timestamp: new Date().toISOString(),
+      reply_to_id: replyingTo?.id || null,
+      reply_to_text: replyingTo?.text || null,
+      reply_to_sender: replyingTo?.sender || null,
+      reply_is_recalled: replyingTo?.is_recalled || 0
+    };
+    
+    setMessages(prev => [...prev, newMsg]);
+    setTimeout(scrollToBottom, 100);
+
+    socket.emit('send_message', { 
+      sender: username, 
+      text: '',
+      type: 'sticker',
+      media_url: url,
+      reply_to_id: replyingTo?.id || null,
+      client_id: clientId
+    });
+    
+    setReplyingTo(null);
+    setShowStickerPicker(false);
   };
 
   const handleSend = (e) => {
@@ -275,34 +362,6 @@ export default function Chat({ username }) {
     }
   };
 
-  const onEmojiClick = (emojiObject) => {
-    setInputText(prev => prev + emojiObject.emoji);
-  };
-
-  const addReaction = (messageId, emoji) => {
-    socket.emit('add_reaction', { messageId, emoji, username });
-    setActiveMenuId(null);
-  };
-  
-  const recallMessage = (messageId) => {
-    socket.emit('recall_message', { messageId, username });
-    setActiveMenuId(null);
-  };
-
-  const handleTouchStart = (msgId) => {
-    pressTimer.current = setTimeout(() => {
-      setActiveMenuId(msgId);
-    }, 400); // 400ms long press
-  };
-
-  const handleTouchEnd = () => {
-    if (pressTimer.current) clearTimeout(pressTimer.current);
-  };
-  
-  const handleTouchMove = () => {
-    if (pressTimer.current) clearTimeout(pressTimer.current);
-  };
-
   const t = THEMES[currentThemeId];
   const isDark = currentThemeId === 'dark' || currentThemeId === 'starry_night';
 
@@ -311,12 +370,81 @@ export default function Chat({ username }) {
       className={`flex flex-col h-screen w-full max-w-[100vw] overflow-x-hidden ${t.bg} transition-colors duration-500`}
       style={t.bgImage ? { backgroundImage: t.bgImage } : {}}
     >
+      <input 
+        type="file" 
+        ref={avatarInputRef} 
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const reader = new FileReader();
+            reader.addEventListener('load', () => setAvatarToCrop(reader.result));
+            reader.readAsDataURL(e.target.files[0]);
+            e.target.value = null; // reset
+          }
+        }}
+        className="hidden" 
+        accept="image/*"
+      />
+      <input 
+        type="file" 
+        ref={stickerInputRef} 
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const reader = new FileReader();
+            reader.addEventListener('load', () => setStickerToCrop(reader.result));
+            reader.readAsDataURL(e.target.files[0]);
+            e.target.value = null; // reset
+          }
+        }}
+        className="hidden" 
+        accept="image/*"
+      />
+      {avatarToCrop && (
+        <ImageCropperModal
+          imageSrc={avatarToCrop}
+          cropShape="round"
+          onCancel={() => setAvatarToCrop(null)}
+          onCropComplete={async (blob) => {
+            setAvatarToCrop(null);
+            const formData = new FormData();
+            formData.append('image', blob);
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.url) {
+              socket.emit('update_avatar', { username, url: data.url });
+            }
+          }}
+        />
+      )}
+      {stickerToCrop && (
+        <ImageCropperModal
+          imageSrc={stickerToCrop}
+          cropShape="rect"
+          onCancel={() => setStickerToCrop(null)}
+          onCropComplete={async (blob) => {
+            setStickerToCrop(null);
+            const formData = new FormData();
+            formData.append('image', blob);
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.url) {
+              socket.emit('save_sticker', { username, url: data.url });
+            }
+          }}
+        />
+      )}
+
       {/* Header */}
       <header className={`${t.header} px-3 py-3 md:px-6 md:py-4 shadow-sm flex items-center justify-between border-b ${t.border} z-10 transition-colors duration-500`}>
         <div className="flex items-center gap-2 md:gap-4 overflow-hidden">
+          <div className="relative flex-shrink-0 cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
+            <div className={`w-12 h-12 ${t.iconBg} rounded-full flex items-center justify-center ${t.textPrimary} font-bold text-xl shadow-inner overflow-hidden`}>
+              {myAvatar ? <img src={myAvatar} alt="My Avatar" className="w-full h-full object-cover" /> : username.charAt(0)}
+            </div>
+            <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${isDark ? 'border-gray-800' : 'border-white'} bg-green-500`}></div>
+          </div>
           <div className="relative flex-shrink-0">
-            <div className={`w-12 h-12 ${t.iconBg} rounded-full flex items-center justify-center ${t.textPrimary} font-bold text-xl shadow-inner`}>
-              {partnerName.charAt(0)}
+            <div className={`w-12 h-12 ${t.iconBg} rounded-full flex items-center justify-center ${t.textPrimary} font-bold text-xl shadow-inner overflow-hidden`}>
+              {partnerAvatar ? <img src={partnerAvatar} alt="Partner Avatar" className="w-full h-full object-cover" /> : partnerName.charAt(0)}
             </div>
             <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${isDark ? 'border-gray-800' : 'border-white'} ${partnerStatus.status === 'online' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
           </div>
@@ -428,23 +556,25 @@ export default function Chat({ username }) {
             
             let reactionsObj = {};
             try {
-              if (msg.reactions) reactionsObj = JSON.parse(msg.reactions);
-            } catch(e) {}
+              reactionsObj = JSON.parse(msg.reactions || '{}');
+            } catch (e) {}
 
-            const msgTime = new Date(msg.timestamp + (msg.timestamp.includes('Z') ? '' : 'Z')).getTime();
-            const isRecallable = isMe && (Date.now() - msgTime <= 5 * 60 * 1000);
+            const isRecallable = isMe && !msg.is_recalled && (() => {
+              const msgTime = new Date(msg.timestamp + (msg.timestamp.includes('Z') ? '' : 'Z')).getTime();
+              return Date.now() - msgTime <= 5 * 60 * 1000;
+            })();
 
             if (msg.is_recalled) {
               return (
                 <motion.div 
                   key={msg.id}
-                  initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
                   layout
                   className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className={`rounded-2xl px-4 py-2 border border-gray-300 italic opacity-60 text-sm ${isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-500'} ${isMe ? 'rounded-br-none' : 'rounded-bl-none'}`}>
-                    {msg.sender} đã thu hồi một tin nhắn
+                  <div className={`px-4 py-2 rounded-2xl ${isDark ? 'bg-gray-800 text-gray-500 border-gray-700' : 'bg-gray-100 text-gray-400 border-gray-200'} border italic text-sm md:text-base`}>
+                    Tin nhắn đã bị thu hồi
                   </div>
                 </motion.div>
               );
@@ -464,7 +594,6 @@ export default function Chat({ username }) {
                   onTouchEnd={handleTouchEnd}
                   onTouchMove={handleTouchMove}
                   onContextMenu={(e) => {
-                    // Prevent default context menu on mobile long press
                     if (window.innerWidth <= 768) {
                       e.preventDefault();
                     }
@@ -483,12 +612,27 @@ export default function Chat({ username }) {
                     <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center" title='Trả lời'>
                       <Reply className="w-5 h-5 md:w-3.5 md:h-3.5" />
                     </button>
-                    <button onClick={() => { navigator.clipboard.writeText(msg.text); setActiveMenuId(null); }} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center" title='Copy'>
-                      <Copy className="w-5 h-5 md:w-3.5 md:h-3.5" />
-                    </button>
+                    {msg.type !== 'sticker' && (
+                      <button onClick={() => { navigator.clipboard.writeText(msg.text); setActiveMenuId(null); }} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center" title='Copy'>
+                        <Copy className="w-5 h-5 md:w-3.5 md:h-3.5" />
+                      </button>
+                    )}
                     {isRecallable && (
                       <button onClick={() => recallMessage(msg.id)} className="hover:scale-125 transition-transform text-red-500 p-1 flex justify-center" title="Thu hồi">
                         <X className="w-5 h-5 md:w-3.5 md:h-3.5" />
+                      </button>
+                    )}
+                    <button onClick={() => {
+                      setReactingToMessage(reactingToMessage === msg.id ? null : msg.id);
+                    }} className="hover:scale-125 transition-transform text-blue-500 p-1 flex justify-center" title="Thả sticker">
+                      <Plus className="w-5 h-5 md:w-3.5 md:h-3.5" />
+                    </button>
+                    {msg.type === 'sticker' && msg.media_url && (
+                      <button onClick={() => {
+                        socket.emit('save_sticker', { username, url: msg.media_url });
+                        setActiveMenuId(null);
+                      }} className="hover:scale-125 transition-transform text-green-500 p-1 flex justify-center" title="Lưu sticker">
+                        <Download className="w-5 h-5 md:w-3.5 md:h-3.5" />
                       </button>
                     )}
                   </div>
@@ -502,28 +646,67 @@ export default function Chat({ username }) {
                   )}
 
                   {/* Main Bubble */}
-                  <div className={`rounded-2xl px-5 py-3 md:px-4 md:py-2 shadow-sm relative border ${isMe ? t.myMsgBg + ' rounded-br-none border-transparent' : t.theirMsgBg + ' rounded-bl-none'}`}>
-                    {msg.type === 'video' && msg.media_url ? (
-                      <div className="mb-2 w-full max-w-sm rounded-lg overflow-hidden">
-                        <Plyr 
-                          source={{ type: 'video', sources: [{ src: msg.media_url }] }} 
-                          options={{ controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'] }} 
-                        />
+                  {msg.type === 'sticker' && msg.media_url ? (
+                    <div className="relative">
+                      <img src={msg.media_url} alt="Sticker" className="w-32 h-32 md:w-40 md:h-40 object-contain rounded-lg" />
+                      <div className={`text-xs md:text-[10px] mt-1 text-right opacity-70`}>
+                        {new Date(msg.timestamp + (msg.timestamp.includes('Z') ? '' : 'Z')).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
                       </div>
-                    ) : null}
-                    <p className="whitespace-pre-wrap break-words text-lg md:text-base" dangerouslySetInnerHTML={{ __html: msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="underline">$&</a>') }}></p>
-                    <div className={`text-xs md:text-[10px] mt-1 text-right opacity-70`}>
-                      {new Date(msg.timestamp + (msg.timestamp.includes('Z') ? '' : 'Z')).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
                     </div>
-                  </div>
+                  ) : (
+                    <div className={`rounded-2xl px-5 py-3 md:px-4 md:py-2 shadow-sm relative border ${isMe ? t.myMsgBg + ' rounded-br-none border-transparent' : t.theirMsgBg + ' rounded-bl-none'}`}>
+                      {msg.type === 'video' && msg.media_url ? (
+                        <div className="mb-2 w-full max-w-sm rounded-lg overflow-hidden">
+                          <Plyr 
+                            source={{ type: 'video', sources: [{ src: msg.media_url }] }} 
+                            options={{ controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'] }} 
+                          />
+                        </div>
+                      ) : null}
+                      <p className="whitespace-pre-wrap break-words text-lg md:text-base" dangerouslySetInnerHTML={{ __html: msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="underline">$&</a>') }}></p>
+                      <div className={`text-xs md:text-[10px] mt-1 text-right opacity-70`}>
+                        {new Date(msg.timestamp + (msg.timestamp.includes('Z') ? '' : 'Z')).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {isMe && (
+                    <div className="flex justify-end mt-1 opacity-70">
+                      <span className="text-[10px] md:text-xs">
+                        {msg.status === 'sending' ? 'Đang gửi...' : msg.status === 'read' ? 'Đã xem' : 'Đã gửi'}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Reactions Display */}
                   {Object.keys(reactionsObj).length > 0 && (
-                    <div className={`flex gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      {Object.entries(reactionsObj).map(([emoji, users]) => (
-                        <div key={emoji} className={`${t.header} border ${t.border} text-sm md:text-xs rounded-full px-2 py-1 md:px-1.5 md:py-0.5 shadow-sm`}>
-                          {emoji} {users.length > 1 ? users.length : ''}
-                        </div>
+                    <div className={`absolute -bottom-3 ${isMe ? 'right-4' : 'left-4'} ${t.header} border ${t.border} rounded-full px-2 py-0.5 text-xs shadow-sm flex items-center gap-1 z-10`}>
+                      {Object.entries(reactionsObj).map(([emoji, users]) => {
+                        const isUrl = emoji.startsWith('/') || emoji.startsWith('http');
+                        return isUrl ? (
+                          <img key={emoji} src={emoji} alt="Sticker reaction" className="w-5 h-5 object-contain" title={users.join(', ')} />
+                        ) : (
+                          <span key={emoji} title={users.join(', ')}>{emoji}</span>
+                        );
+                      })}
+                      <span className="text-[10px] ml-0.5 opacity-70">{Object.values(reactionsObj).flat().length}</span>
+                    </div>
+                  )}
+
+                  {/* Sticker Reaction Picker */}
+                  {reactingToMessage === msg.id && (
+                    <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} z-50 p-2 shadow-2xl rounded-2xl border ${t.border} ${t.header} flex flex-wrap gap-2 w-64 max-h-48 overflow-y-auto`}>
+                      <button onClick={() => stickerInputRef.current?.click()} className={`w-12 h-12 flex items-center justify-center border-2 border-dashed ${t.border} rounded-lg text-gray-400 hover:text-gray-600`}>
+                        <Plus className="w-6 h-6" />
+                      </button>
+                      {stickers.map(st => (
+                        <button key={st.id} onClick={() => {
+                          addReaction(msg.id, st.url);
+                          setReactingToMessage(null);
+                          setActiveMenuId(null);
+                        }} className="w-12 h-12 hover:scale-105 transition-transform">
+                          <img src={st.url} alt="Sticker" className="w-full h-full object-contain rounded-lg" />
+                        </button>
                       ))}
                     </div>
                   )}
@@ -532,60 +715,98 @@ export default function Chat({ username }) {
               </motion.div>
             );
           })}
+          
+          {isPartnerTyping && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex justify-start"
+            >
+              <div className={`rounded-2xl px-4 py-2 shadow-sm ${t.theirMsgBg} rounded-bl-none opacity-70 text-sm`}>
+                <span className="animate-pulse">Đang gõ...</span>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <footer className={`${t.header} p-4 border-t ${t.border} relative z-20 transition-colors duration-500`}>
-        
-        {/* Reply Preview */}
-        <AnimatePresence>
-          {replyingTo && (
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className={`absolute bottom-full left-0 right-0 ${isDark ? 'bg-gray-800' : 'bg-gray-50'} border-t ${t.border} px-6 py-2 flex justify-between items-center`}
-            >
-              <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'} truncate`}>
-                <span className={`font-bold mr-2 ${t.textPrimary}`}>Đang trả lời {replyingTo.sender}:</span>
-                {replyingTo.text}
-              </div>
-              <button onClick={() => setReplyingTo(null)} className="text-gray-400 hover:text-red-500">
-                <X size={16} />
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Emoji Picker Popover */}
-        {showEmojiPicker && (
-          <div className="absolute bottom-full right-4 mb-2 shadow-2xl">
-            <Picker onEmojiClick={onEmojiClick} theme={isDark ? 'dark' : 'light'} />
+      {/* Footer */}
+      <footer className={`${t.header} p-3 md:p-4 border-t ${t.border} shadow-sm relative z-20`}>
+        {replyingTo && (
+          <div className={`max-w-4xl mx-auto mb-2 flex items-center justify-between p-2 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+            <div className="flex flex-col truncate">
+              <span className={`text-xs font-bold ${t.textPrimary}`}>Trả lời {replyingTo.sender}</span>
+              <span className={`text-sm truncate ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{replyingTo.text}</span>
+            </div>
+            <button onClick={() => setReplyingTo(null)} className="p-1 text-gray-500 hover:text-gray-700">
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
-        <form onSubmit={handleSend} className="flex gap-2 w-full max-w-4xl mx-auto items-center">
+        <form onSubmit={handleSend} className="flex gap-2 max-w-4xl mx-auto items-center">
           <button 
             type="button" 
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className={`text-gray-400 ${t.hoverBtn} p-1 md:p-2 transition-colors flex-shrink-0`}
+            onClick={() => {
+              setShowStickerPicker(!showStickerPicker);
+              setShowEmojiPicker(false);
+            }}
+            className={`text-gray-400 ${t.textPrimary.replace('text-', 'hover:text-')} transition-colors p-1 md:p-2 flex-shrink-0 relative`}
           >
-            <Smile className="w-7 h-7 md:w-6 md:h-6" />
+            <ImageIcon className="w-5 h-5 md:w-6 md:h-6" />
           </button>
-          <input 
-            type="text" 
+          
+          <button 
+            type="button" 
+            onClick={() => {
+              setShowEmojiPicker(!showEmojiPicker);
+              setShowStickerPicker(false);
+            }}
+            className={`text-gray-400 ${t.textPrimary.replace('text-', 'hover:text-')} transition-colors p-1 md:p-2 flex-shrink-0`}
+          >
+            <Smile className="w-5 h-5 md:w-6 md:h-6" />
+          </button>
+
+          {showStickerPicker && (
+            <div className={`absolute bottom-full left-2 mb-2 z-50 p-2 shadow-2xl rounded-2xl border ${t.border} ${t.header} flex flex-wrap gap-2 w-[300px] max-h-64 overflow-y-auto`}>
+              <button type="button" onClick={() => stickerInputRef.current?.click()} className={`w-16 h-16 flex items-center justify-center border-2 border-dashed ${t.border} rounded-lg text-gray-400 hover:text-gray-600`}>
+                <Plus className="w-8 h-8" />
+              </button>
+              {stickers.map(st => (
+                <button type="button" key={st.id} onClick={() => sendSticker(st.url)} className="w-16 h-16 hover:scale-105 transition-transform">
+                  <img src={st.url} alt="Sticker" className="w-full h-full object-contain rounded-lg" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {showEmojiPicker && (
+            <div className="absolute bottom-full left-2 mb-2 z-50 shadow-2xl rounded-2xl overflow-hidden border border-gray-200">
+              <Picker 
+                onEmojiClick={(emoji) => setInputText(prev => prev + emoji.emoji)}
+                theme={isDark ? "dark" : "light"}
+                searchDisabled
+                skinTonesDisabled
+                height={350}
+                width={300}
+              />
+            </div>
+          )}
+
+          <input
+            type="text"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Nhắn nhủ điều gì đó..."
-            className={`flex-1 min-w-0 ${isDark ? 'bg-gray-700 text-white border-gray-600 focus:bg-gray-800' : 'bg-gray-50 text-gray-900 border-gray-200 focus:bg-white'} border rounded-full px-4 py-3 md:py-3 text-base md:text-base focus:outline-none focus:ring-2 transition-all`}
+            onChange={handleInputChange}
+            placeholder="Nhắn gửi yêu thương..."
+            className={`flex-1 rounded-full px-4 py-2 md:px-6 md:py-3 focus:outline-none min-w-0 ${isDark ? 'bg-gray-800 text-gray-100 placeholder-gray-500' : 'bg-gray-100 text-gray-800'} text-sm md:text-base`}
           />
           <button 
             type="submit"
-            className={`${t.myMsgBg} rounded-full w-12 h-12 md:w-12 md:h-12 flex items-center justify-center transition-transform hover:scale-105 shadow-md flex-shrink-0`}
+            disabled={!inputText.trim()}
+            className={`${t.myMsgBg} p-2 md:p-3 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex-shrink-0`}
           >
-            <Send className="w-5 h-5 md:w-5 md:h-5" />
+            <Send className="w-4 h-4 md:w-5 md:h-5" />
           </button>
         </form>
       </footer>
