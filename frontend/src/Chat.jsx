@@ -3,6 +3,8 @@ import { io } from 'socket.io-client';
 import { Heart, Send, LogOut, ChevronDown, Smile, Reply, X, Palette, Copy } from 'lucide-react';
 import Picker from 'emoji-picker-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Plyr } from 'plyr-react';
+import 'plyr-react/plyr.css';
 
 const socket = io();
 
@@ -98,6 +100,8 @@ export default function Chat({ username }) {
   
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [activeMenuId, setActiveMenuId] = useState(null);
+  const pressTimer = useRef(null);
 
   const messagesEndRef = useRef(null);
   const listRef = useRef(null);
@@ -190,6 +194,20 @@ export default function Chat({ username }) {
     };
   }, [username, partnerName, partnerStatus.nickname]);
 
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (activeMenuId && !e.target.closest('.reaction-menu-container')) {
+        setActiveMenuId(null);
+      }
+    };
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [activeMenuId]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -263,10 +281,26 @@ export default function Chat({ username }) {
 
   const addReaction = (messageId, emoji) => {
     socket.emit('add_reaction', { messageId, emoji, username });
+    setActiveMenuId(null);
   };
   
   const recallMessage = (messageId) => {
     socket.emit('recall_message', { messageId, username });
+    setActiveMenuId(null);
+  };
+
+  const handleTouchStart = (msgId) => {
+    pressTimer.current = setTimeout(() => {
+      setActiveMenuId(msgId);
+    }, 400); // 400ms long press
+  };
+
+  const handleTouchEnd = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  };
+  
+  const handleTouchMove = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
   };
 
   const t = THEMES[currentThemeId];
@@ -424,23 +458,36 @@ export default function Chat({ username }) {
                 layout
                 className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
               >
-                <div className="group relative flex flex-col max-w-[70%]">
+                <div 
+                  className="group relative flex flex-col max-w-[70%] reaction-menu-container"
+                  onTouchStart={() => handleTouchStart(msg.id)}
+                  onTouchEnd={handleTouchEnd}
+                  onTouchMove={handleTouchMove}
+                  onContextMenu={(e) => {
+                    // Prevent default context menu on mobile long press
+                    if (window.innerWidth <= 768) {
+                      e.preventDefault();
+                    }
+                  }}
+                >
                   
-                  {/* Reaction Button (Hover) */}
-                  <div className={`absolute top-0 ${isMe ? '-left-14 md:-left-12' : '-right-14 md:-right-12'} opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2 md:gap-1 z-10 ${t.header} shadow-md rounded-full p-2 md:p-1`}>
+                  {/* Reaction Button (Hover & Touch) */}
+                  <div className={`absolute top-0 ${isMe ? '-left-14 md:-left-12' : '-right-14 md:-right-12'} 
+                    ${activeMenuId === msg.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'} 
+                    transition-opacity flex flex-col gap-2 md:gap-1 z-10 ${t.header} shadow-md rounded-full p-2 md:p-1`}>
                     {reactionOptions.map(emoji => (
                       <button key={emoji} onClick={() => addReaction(msg.id, emoji)} className="hover:scale-125 transition-transform text-xl md:text-sm">
                         {emoji}
                       </button>
                     ))}
-                    <button onClick={() => setReplyingTo(msg)} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center title='Trả lời'">
+                    <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center" title='Trả lời'>
                       <Reply className="w-5 h-5 md:w-3.5 md:h-3.5" />
                     </button>
-                    <button onClick={() => navigator.clipboard.writeText(msg.text)} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center" title='Copy'>
+                    <button onClick={() => { navigator.clipboard.writeText(msg.text); setActiveMenuId(null); }} className="hover:scale-125 transition-transform text-gray-500 p-1 flex justify-center" title='Copy'>
                       <Copy className="w-5 h-5 md:w-3.5 md:h-3.5" />
                     </button>
                     {isRecallable && (
-                      <button onClick={() => recallMessage(msg.id)} className="hover:scale-125 transition-transform text-red-500 p-1 flex justify-center title='Thu hồi'" title="Thu hồi">
+                      <button onClick={() => recallMessage(msg.id)} className="hover:scale-125 transition-transform text-red-500 p-1 flex justify-center" title="Thu hồi">
                         <X className="w-5 h-5 md:w-3.5 md:h-3.5" />
                       </button>
                     )}
@@ -457,8 +504,11 @@ export default function Chat({ username }) {
                   {/* Main Bubble */}
                   <div className={`rounded-2xl px-5 py-3 md:px-4 md:py-2 shadow-sm relative border ${isMe ? t.myMsgBg + ' rounded-br-none border-transparent' : t.theirMsgBg + ' rounded-bl-none'}`}>
                     {msg.type === 'video' && msg.media_url ? (
-                      <div className="mb-2">
-                        <video src={msg.media_url} controls className="rounded-lg max-h-96 w-auto" />
+                      <div className="mb-2 w-full max-w-sm rounded-lg overflow-hidden">
+                        <Plyr 
+                          source={{ type: 'video', sources: [{ src: msg.media_url }] }} 
+                          options={{ controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'] }} 
+                        />
                       </div>
                     ) : null}
                     <p className="whitespace-pre-wrap break-words text-lg md:text-base" dangerouslySetInnerHTML={{ __html: msg.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="underline">$&</a>') }}></p>
