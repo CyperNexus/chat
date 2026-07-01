@@ -114,7 +114,7 @@ export default function Chat({ username }) {
     socket.emit('join', username);
 
     // Request notification permission
-    if (Notification.permission === 'default') {
+    if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
 
@@ -147,7 +147,7 @@ export default function Chat({ username }) {
       setTimeout(scrollToBottom, 100);
 
       // Show notification if backgrounded and not from me
-      if (document.hidden && msg.sender !== username && Notification.permission === 'granted') {
+      if ('Notification' in window && document.hidden && msg.sender !== username && Notification.permission === 'granted') {
         const title = partnerStatus.nickname ? `${partnerStatus.nickname} (${msg.sender})` : msg.sender;
         new Notification(title, { body: msg.text || 'Đã gửi một tin nhắn' });
       }
